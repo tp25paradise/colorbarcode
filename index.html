@@ -4,18 +4,124 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Gradient Barcode Tool</title>
+<style>
+  :root { color-scheme: dark light;
+    --bg:#0b0b0c; --fg:#fff; --muted:#9aa0a6; --accent:#7aa2ff;
+    --card:#17181b; --border:#2a2c31; --error:#ff6b6b; --ok:#4ade80;
+  }
+  .light { --bg:#fff; --fg:#111; --muted:#5f6368; --accent:#2457ff;
+    --card:#f3f4f7; --border:#d9dce3;
+  }
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Helvetica,Arial;line-height:1.4;}
+  .wrap{max-width:960px;margin:32px auto;padding:0 16px;position:relative;}
+  h1{font-size:1.8rem;margin:0 0 12px;}
+  .theme-switch{position:absolute;top:0;right:0;display:flex;align-items:center;gap:6px;cursor:pointer;}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;}
+  .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
+  .row>*{margin:6px 0;}
+  label{font-size:.95rem;color:var(--muted);}
+  input[type="file"]{border:1px dashed var(--border);padding:10px;border-radius:8px;background:transparent;color:var(--fg);}
+  button{appearance:none;border:1px solid var(--border);background:var(--bg);color:var(--fg);padding:10px 14px;border-radius:8px;cursor:pointer;}
+  button.primary{background:var(--accent);border-color:transparent;color:#fff;}
+  fieldset{border:1px solid var(--border);border-radius:8px;padding:8px 12px;min-width:260px}
+  legend{color:var(--fg);font-weight:700;} .hint{font-size:.85rem;color:var(--muted);margin:4px 0 4px;} .steps li{margin:2px 0;}
+  .inline{display:flex;align-items:center;gap:8px}
+  .kval{min-width:3ch;text-align:right}
+  .swatches{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-top:8px;}
+  .swatch{display:flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:8px;padding:6px;background:var(--bg);}
+  .swatch>i{width:24px;height:24px;border-radius:6px;border:1px solid var(--border);}
+  canvas{width:100%;height:180px;border-radius:12px;display:block;background:#000;}
+  .footer{color:var(--muted);font-size:.85rem;text-align:center;margin-top:16px;}
+  .status{font-size:.9rem}.status.ok{color:var(--ok)}.status.err{color:var(--error)}
+  .desc-steps{margin:0 0 16px 0; padding-left: 20px;}
+</style>
 </head>
 <body>
-<h1>Gradient Barcode Tool</h1>
-<p>Demo de herramienta con modo oscuro/claro persistente.</p>
-<label><input id="modeSwitch" type="checkbox"> Light mode</label>
+<div class="wrap">
+  <div class="theme-switch">
+    <label for="modeSwitch">Light mode</label>
+    <input id="modeSwitch" type="checkbox" />
+  </div>
+  <h1>Gradient Barcode Tool</h1>
+  <ol class="desc-steps">
+    <li>Subí una imagen</li>
+    <li>Calculamos su histograma</li>
+    <li>Elegí <b>#7 colores</b>, <b>#N colores</b> (slider) o <b>Todos</b>. También podés ajustar el alto del gradiente.</li>
+    <li>Dibujamos un gradiente ponderado por frecuencia.</li>
+  </ol>
+
+  <div class="card">
+    <div class="row">
+      <input id="file" type="file" accept="image/*" />
+      <button id="generate" class="primary">Generar</button>
+      <button id="download" title="Descargar PNG">Descargar PNG</button>
+      <span id="status" class="status"></span>
+    </div>
+
+    <div class="row">
+      <fieldset>
+        <legend>Paleta</legend>
+        <div class="hint">Cantidad de colores que componen el gradiente.</div>
+        <div class="inline">
+          <label><input type="radio" name="palette" value="top7" checked /> 7 colores</label>
+        </div>
+        <div class="inline" style="margin-top:6px">
+          <label class="inline" title="Cantidad de clusters para Top-N">
+            <input type="radio" name="palette" value="topN" id="rbTopN" />
+            <span>N colores</span>
+            <input id="krange" type="range" min="3" max="256" step="1" value="7" disabled />
+            <span>k=<b id="kval" class="kval">7</b></span>
+          </label>
+        </div>
+        <div class="inline" style="margin-top:6px">
+          <label><input type="radio" name="palette" value="all" /> Todos los colores</label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Orden</legend>
+        <div class="hint">Cómo se ordenan los colores antes de dibujar.</div>
+        <label><input type="radio" name="sort" value="hue" checked /> Hue</label>
+        <label style="margin-left:10px"><input type="radio" name="sort" value="frequency" /> Frecuencia</label>
+      </fieldset>
+    </div>
+
+    <div class="row">
+      <fieldset>
+        <legend>Calidad</legend>
+        <div class="hint">Downscale: tamaño de la imagen para análisis (↑ preciso, ↓ rápido).</div>
+        <label>Downscale a <input id="downscale" type="number" min="64" max="1024" step="32" value="360" style="width:80px" /> px lado mayor</label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Alto</legend>
+        <div class="hint">Altura del gradiente en la vista previa y exportado.</div>
+        <label>Alto del gradiente (px)
+          <input id="heightPx" type="number" min="60" max="1000" step="10" value="180" style="width:80px" />
+        </label>
+      </fieldset>
+    </div>
+
+    <div style="margin-top:12px">
+      <canvas id="preview" width="1200" height="180" aria-label="Gradient preview"></canvas>
+    </div>
+    <div id="swatches" class="swatches"></div>
+  </div>
+
+  <p class="footer">Tip: “Todos los colores” puede ser más pesado en imágenes con mucho detalle.</p>
+</div>
 
 <script>
+// === Theme persistence ===
 const modeSwitch = document.getElementById('modeSwitch');
 const savedTheme = localStorage.getItem('theme');
 if (savedTheme === 'light') {
   document.body.classList.add('light');
   modeSwitch.checked = true;
+} else {
+  document.body.classList.remove('light');
+  modeSwitch.checked = false;
 }
 modeSwitch.addEventListener('change', () => {
   if (modeSwitch.checked) {
@@ -26,6 +132,99 @@ modeSwitch.addEventListener('change', () => {
     localStorage.setItem('theme', 'dark');
   }
 });
-</script>
-</body>
-</html>
+
+// === App logic ===
+const $ = s => document.querySelector(s);
+const fileInput = $('#file');
+const btnGen = $('#generate');
+const btnDl = $('#download');
+const canvas = $('#preview');
+const ctx = canvas.getContext('2d');
+const swatches = $('#swatches');
+const downscaleInput = $('#downscale');
+const statusEl = $('#status');
+const heightInput = $('#heightPx');
+const kRange = $('#krange');
+const kVal = $('#kval');
+
+let img = new Image();
+let hasImage = false;
+let objectURL = null;
+
+// Persist K
+const savedK = parseInt(localStorage.getItem('gb_k') || '7', 10);
+if(!isNaN(savedK)) { kRange.value = savedK; kVal.textContent = savedK; }
+kRange.addEventListener('input', () => { kVal.textContent = kRange.value; });
+kRange.addEventListener('change', () => { localStorage.setItem('gb_k', kRange.value); if (hasImage && getPaletteMode()==='topN') generate(); });
+
+// Enable/disable slider per palette mode
+document.querySelectorAll('input[name="palette"]').forEach(r => {
+  r.addEventListener('change', () => {
+    const mode = getPaletteMode();
+    kRange.disabled = mode !== 'topN';
+    if (hasImage) generate();
+  });
+});
+document.querySelectorAll('input[name="sort"]').forEach(r => r.addEventListener('change', () => { if (hasImage) generate(); }));
+downscaleInput.addEventListener('change', () => { if (hasImage) generate(); });
+
+fileInput.addEventListener('change', () => {
+  const f = fileInput.files && fileInput.files[0];
+  if(!f){ setStatus('Elegí un archivo',''); return; }
+  if(objectURL) URL.revokeObjectURL(objectURL);
+  objectURL = URL.createObjectURL(f);
+  img = new Image();
+  img.onload = () => { hasImage = true; setStatus('Imagen cargada ✓','ok'); generate(); };
+  img.onerror = () => { hasImage = false; setStatus('Error cargando imagen','err'); };
+  img.src = objectURL;
+});
+
+btnGen.addEventListener('click', generate);
+btnDl.addEventListener('click', () => {
+  const exportWidth = 2400;
+  const exportHeight = clamp(parseInt(heightInput.value||'180',10), 60, 1000);
+  if(!hasImage){ setStatus('Subí una imagen primero',''); return; }
+  const mode = getPaletteMode();
+  const sort = document.querySelector('input[name="sort"]:checked').value;
+  const maxEdge = clamp(parseInt(downscaleInput.value||'360',10), 64, 1024);
+  const k = getK();
+  const {colors, totals} = extractColors(img, maxEdge, mode, k);
+
+  const paint = document.createElement('canvas');
+  paint.width = exportWidth; paint.height = exportHeight;
+  const pctx = paint.getContext('2d');
+  drawGradientOnContext(pctx, exportWidth, exportHeight, colors, totals, sort);
+
+  const a = document.createElement('a');
+  a.download = 'gradient-barcode.png';
+  a.href = paint.toDataURL('image/png');
+  a.click();
+});
+
+function setStatus(msg, type=''){ statusEl.textContent = msg||''; statusEl.className = 'status ' + (type||''); }
+function getPaletteMode(){ return document.querySelector('input[name="palette"]:checked').value; }
+function getK(){
+  const mode = getPaletteMode();
+  if(mode === 'top7') return 7;
+  if(mode === 'topN') return clamp(parseInt(kRange.value||'7',10), 3, 256);
+  return 7;
+}
+
+function generate(){
+  if(!hasImage){ setStatus('Subí una imagen primero',''); return; }
+  const mode = getPaletteMode();
+  const sort = document.querySelector('input[name="sort"]:checked').value;
+  const maxEdge = clamp(parseInt(downscaleInput.value||'360',10), 64, 1024);
+  const k = getK();
+
+  const {colors, totals} = extractColors(img, maxEdge, mode, k);
+  drawGradient(colors, totals, sort);
+  renderSwatches(colors, totals);
+  setStatus('Generado ✓','ok');
+}
+
+function extractColors(image, maxEdge, mode, k){
+  const scale = maxEdge / Math.max(image.naturalWidth, image.naturalHeight);
+  const w = Math.max(1, Math.round(image.naturalWidth * scale));
+  const h = Math.max(1, Math.round(image.naturalHeight * scale));
+  const c = doc
