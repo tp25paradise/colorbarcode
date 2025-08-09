@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Gradient Barcode Tool</title>
+</head>
+<body>
+<h1>Gradient Barcode Tool</h1>
+<p>Demo de herramienta con modo oscuro/claro persistente.</p>
+<label><input id="modeSwitch" type="checkbox"> Light mode</label>
+
+<script>
+const modeSwitch = document.getElementById('modeSwitch');
+const savedTheme = localStorage.getItem('theme');
+if (savedTheme === 'light') {
+  document.body.classList.add('light');
+  modeSwitch.checked = true;
+}
+modeSwitch.addEventListener('change', () => {
+  if (modeSwitch.checked) {
+    document.body.classList.add('light');
+    localStorage.setItem('theme', 'light');
+  } else {
+    document.body.classList.remove('light');
+    localStorage.setItem('theme', 'dark');
+  }
+});
+</script>
+</body>
+</html>
