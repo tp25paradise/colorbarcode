@@ -9,14 +9,26 @@
     --bg:#0b0b0c; --fg:#fff; --muted:#9aa0a6; --accent:#7aa2ff;
     --card:#17181b; --border:#2a2c31; --error:#ff6b6b; --ok:#4ade80;
   }
-  .light { --bg:#fff; --fg:#111; --muted:#5f6368; --accent:#2457ff;
+  /* Cuando html.light está activo, redefinimos variables */
+  html.light {
+    --bg:#fff; --fg:#111; --muted:#5f6368; --accent:#2457ff;
     --card:#f3f4f7; --border:#d9dce3;
   }
+
   html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);
     font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Helvetica,Arial;line-height:1.4;}
   .wrap{max-width:960px;margin:32px auto;padding:0 16px;position:relative;}
   h1{font-size:1.8rem;margin:0 0 12px;}
-  .theme-switch{position:absolute;top:0;right:0;display:flex;align-items:center;gap:6px;cursor:pointer;}
+
+  /* Switch */
+  .theme-switch{position:absolute;top:0;right:0;display:flex;align-items:center;gap:8px}
+  .switch{position:relative;display:inline-block;width:44px;height:24px}
+  .switch input{opacity:0;width:0;height:0}
+  .slider{position:absolute;inset:0;background:var(--border);border-radius:999px;transition:.2s}
+  .slider:before{content:"";position:absolute;height:18px;width:18px;left:3px;top:3px;background:var(--fg);border-radius:50%;transition:.2s}
+  input:checked + .slider{background:var(--accent)}
+  input:checked + .slider:before{transform:translateX(20px)}
+
   .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;}
   .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
   .row>*{margin:6px 0;}
@@ -24,8 +36,9 @@
   input[type="file"]{border:1px dashed var(--border);padding:10px;border-radius:8px;background:transparent;color:var(--fg);}
   button{appearance:none;border:1px solid var(--border);background:var(--bg);color:var(--fg);padding:10px 14px;border-radius:8px;cursor:pointer;}
   button.primary{background:var(--accent);border-color:transparent;color:#fff;}
-  fieldset{border:1px solid var(--border);border-radius:8px;padding:8px 12px;min-width:260px}
-  legend{color:var(--fg);font-weight:700;} .hint{font-size:.85rem;color:var(--muted);margin:4px 0 4px;} .steps li{margin:2px 0;}
+  fieldset{border:1px solid var(--border);border-radius:12px;padding:10px 12px;min-width:260px}
+  legend{color:var(--fg);font-weight:700;}
+  .hint{font-size:.85rem;color:var(--muted);margin:4px 0 4px;}
   .inline{display:flex;align-items:center;gap:8px}
   .kval{min-width:3ch;text-align:right}
   .swatches{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-top:8px;}
@@ -39,10 +52,16 @@
 </head>
 <body>
 <div class="wrap">
-  <div class="theme-switch">
-    <label for="modeSwitch">Light mode</label>
-    <input id="modeSwitch" type="checkbox" />
+
+  <!-- Switch Light/Dark arriba a la derecha -->
+  <div class="theme-switch" title="Cambiar tema">
+    <span>Light</span>
+    <label class="switch">
+      <input id="modeSwitch" type="checkbox" />
+      <span class="slider"></span>
+    </label>
   </div>
+
   <h1>Gradient Barcode Tool</h1>
   <ol class="desc-steps">
     <li>Subí una imagen</li>
@@ -68,7 +87,7 @@
         </div>
         <div class="inline" style="margin-top:6px">
           <label class="inline" title="Cantidad de clusters para Top-N">
-            <input type="radio" name="palette" value="topN" id="rbTopN" />
+            <input type="radio" name="palette" value="topN" />
             <span>N colores</span>
             <input id="krange" type="range" min="3" max="256" step="1" value="7" disabled />
             <span>k=<b id="kval" class="kval">7</b></span>
@@ -113,118 +132,305 @@
 </div>
 
 <script>
-// === Theme persistence ===
-const modeSwitch = document.getElementById('modeSwitch');
-const savedTheme = localStorage.getItem('theme');
-if (savedTheme === 'light') {
-  document.body.classList.add('light');
-  modeSwitch.checked = true;
-} else {
-  document.body.classList.remove('light');
-  modeSwitch.checked = false;
-}
-modeSwitch.addEventListener('change', () => {
-  if (modeSwitch.checked) {
-    document.body.classList.add('light');
-    localStorage.setItem('theme', 'light');
-  } else {
-    document.body.classList.remove('light');
-    localStorage.setItem('theme', 'dark');
+(() => {
+  // ===== Tema persistente con switch (aplicado a <html>)
+  const modeSwitch = document.getElementById('modeSwitch');
+  const root = document.documentElement;
+  const savedTheme = localStorage.getItem('theme');
+  root.classList.toggle('light', savedTheme === 'light');
+  modeSwitch.checked = savedTheme === 'light';
+  modeSwitch.addEventListener('change', () => {
+    const isLight = modeSwitch.checked;
+    root.classList.toggle('light', isLight);
+    localStorage.setItem('theme', isLight ? 'light' : 'dark');
+  });
+
+  // ===== Utilidades DOM
+  const $ = s => document.querySelector(s);
+  const fileInput = $('#file');
+  const btnGen = $('#generate');
+  const btnDl = $('#download');
+  const canvas = $('#preview');
+  const ctx = canvas.getContext('2d');
+  const swatches = $('#swatches');
+  const downscaleInput = $('#downscale');
+  const statusEl = $('#status');
+  const heightInput = $('#heightPx');
+  const kRange = $('#krange');
+  const kVal = $('#kval');
+
+  let img = new Image();
+  let hasImage = false;
+  let objectURL = null;
+
+  const setStatus = (msg, type='') => {
+    statusEl.textContent = msg || '';
+    statusEl.className = 'status ' + (type || '');
+  };
+
+  // Persist K
+  const savedK = parseInt(localStorage.getItem('gb_k') || '7', 10);
+  if(!isNaN(savedK)) { kRange.value = savedK; kVal.textContent = savedK; }
+  kRange.addEventListener('input', () => { kVal.textContent = kRange.value; });
+  kRange.addEventListener('change', () => {
+    localStorage.setItem('gb_k', kRange.value);
+    if (hasImage && getPaletteMode()==='topN') generate();
+  });
+
+  // Activar/desactivar slider según paleta
+  const paletteRadios = document.querySelectorAll('input[name="palette"]');
+  const sortRadios = document.querySelectorAll('input[name="sort"]');
+
+  function getPaletteMode(){ const r = document.querySelector('input[name="palette"]:checked'); return r ? r.value : 'top7'; }
+  function getK(){
+    const mode = getPaletteMode();
+    if(mode === 'top7') return 7;
+    if(mode === 'topN') return clamp(parseInt(kRange.value||'7',10), 3, 256);
+    return 7; // no se usa en 'all'
   }
-});
 
-// === App logic ===
-const $ = s => document.querySelector(s);
-const fileInput = $('#file');
-const btnGen = $('#generate');
-const btnDl = $('#download');
-const canvas = $('#preview');
-const ctx = canvas.getContext('2d');
-const swatches = $('#swatches');
-const downscaleInput = $('#downscale');
-const statusEl = $('#status');
-const heightInput = $('#heightPx');
-const kRange = $('#krange');
-const kVal = $('#kval');
-
-let img = new Image();
-let hasImage = false;
-let objectURL = null;
-
-// Persist K
-const savedK = parseInt(localStorage.getItem('gb_k') || '7', 10);
-if(!isNaN(savedK)) { kRange.value = savedK; kVal.textContent = savedK; }
-kRange.addEventListener('input', () => { kVal.textContent = kRange.value; });
-kRange.addEventListener('change', () => { localStorage.setItem('gb_k', kRange.value); if (hasImage && getPaletteMode()==='topN') generate(); });
-
-// Enable/disable slider per palette mode
-document.querySelectorAll('input[name="palette"]').forEach(r => {
-  r.addEventListener('change', () => {
+  paletteRadios.forEach(r => r.addEventListener('change', () => {
     const mode = getPaletteMode();
     kRange.disabled = mode !== 'topN';
     if (hasImage) generate();
+  }));
+  sortRadios.forEach(r => r.addEventListener('change', () => { if (hasImage) generate(); }));
+  downscaleInput.addEventListener('change', () => { if (hasImage) generate(); });
+
+  // Carga de imagen
+  fileInput.addEventListener('change', () => {
+    const f = fileInput.files && fileInput.files[0];
+    if(!f){ setStatus('Elegí un archivo',''); return; }
+    if(objectURL) URL.revokeObjectURL(objectURL);
+    objectURL = URL.createObjectURL(f);
+    img = new Image();
+    img.onload = () => { hasImage = true; setStatus('Imagen cargada ✓','ok'); generate(); };
+    img.onerror = () => { hasImage = false; setStatus('Error cargando imagen','err'); };
+    img.src = objectURL;
   });
-});
-document.querySelectorAll('input[name="sort"]').forEach(r => r.addEventListener('change', () => { if (hasImage) generate(); }));
-downscaleInput.addEventListener('change', () => { if (hasImage) generate(); });
 
-fileInput.addEventListener('change', () => {
-  const f = fileInput.files && fileInput.files[0];
-  if(!f){ setStatus('Elegí un archivo',''); return; }
-  if(objectURL) URL.revokeObjectURL(objectURL);
-  objectURL = URL.createObjectURL(f);
-  img = new Image();
-  img.onload = () => { hasImage = true; setStatus('Imagen cargada ✓','ok'); generate(); };
-  img.onerror = () => { hasImage = false; setStatus('Error cargando imagen','err'); };
-  img.src = objectURL;
-});
+  // Botones
+  btnGen.addEventListener('click', generate);
+  btnDl.addEventListener('click', () => {
+    try {
+      if(!hasImage){ setStatus('Subí una imagen primero',''); return; }
+      const exportWidth = 2400;
+      const exportHeight = clamp(parseInt(heightInput.value||'180',10), 60, 1000);
+      const mode = getPaletteMode();
+      const sort = (document.querySelector('input[name="sort"]:checked')||{}).value || 'hue';
+      const maxEdge = clamp(parseInt(downscaleInput.value||'360',10), 64, 1024);
+      const k = getK();
+      const {colors, totals} = extractColors(img, maxEdge, mode, k);
 
-btnGen.addEventListener('click', generate);
-btnDl.addEventListener('click', () => {
-  const exportWidth = 2400;
-  const exportHeight = clamp(parseInt(heightInput.value||'180',10), 60, 1000);
-  if(!hasImage){ setStatus('Subí una imagen primero',''); return; }
-  const mode = getPaletteMode();
-  const sort = document.querySelector('input[name="sort"]:checked').value;
-  const maxEdge = clamp(parseInt(downscaleInput.value||'360',10), 64, 1024);
-  const k = getK();
-  const {colors, totals} = extractColors(img, maxEdge, mode, k);
+      const paint = document.createElement('canvas');
+      paint.width = exportWidth; paint.height = exportHeight;
+      const pctx = paint.getContext('2d');
+      drawGradientOnContext(pctx, exportWidth, exportHeight, colors, totals, sort);
 
-  const paint = document.createElement('canvas');
-  paint.width = exportWidth; paint.height = exportHeight;
-  const pctx = paint.getContext('2d');
-  drawGradientOnContext(pctx, exportWidth, exportHeight, colors, totals, sort);
+      const a = document.createElement('a');
+      a.download = 'gradient-barcode.png';
+      a.href = paint.toDataURL('image/png');
+      a.click();
+      setStatus('PNG descargado ✓','ok');
+    } catch(e){
+      console.error(e);
+      setStatus('Error al exportar PNG','err');
+    }
+  });
 
-  const a = document.createElement('a');
-  a.download = 'gradient-barcode.png';
-  a.href = paint.toDataURL('image/png');
-  a.click();
-});
+  // ===== Lógica principal
+  function generate(){
+    try {
+      if(!hasImage){ setStatus('Subí una imagen primero',''); return; }
+      const mode = getPaletteMode();
+      const sort = (document.querySelector('input[name="sort"]:checked')||{}).value || 'hue';
+      const maxEdge = clamp(parseInt(downscaleInput.value||'360',10), 64, 1024);
+      const k = getK();
 
-function setStatus(msg, type=''){ statusEl.textContent = msg||''; statusEl.className = 'status ' + (type||''); }
-function getPaletteMode(){ return document.querySelector('input[name="palette"]:checked').value; }
-function getK(){
-  const mode = getPaletteMode();
-  if(mode === 'top7') return 7;
-  if(mode === 'topN') return clamp(parseInt(kRange.value||'7',10), 3, 256);
-  return 7;
-}
+      const {colors, totals} = extractColors(img, maxEdge, mode, k);
+      drawGradient(colors, totals, sort);
+      renderSwatches(colors, totals);
+      setStatus('Generado ✓','ok');
+    } catch(e){
+      console.error(e);
+      setStatus('Error generando gradiente','err');
+    }
+  }
 
-function generate(){
-  if(!hasImage){ setStatus('Subí una imagen primero',''); return; }
-  const mode = getPaletteMode();
-  const sort = document.querySelector('input[name="sort"]:checked').value;
-  const maxEdge = clamp(parseInt(downscaleInput.value||'360',10), 64, 1024);
-  const k = getK();
+  function extractColors(image, maxEdge, mode, k){
+    const scale = maxEdge / Math.max(image.naturalWidth, image.naturalHeight);
+    const w = Math.max(1, Math.round(image.naturalWidth * scale));
+    const h = Math.max(1, Math.round(image.naturalHeight * scale));
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const cctx = c.getContext('2d', { willReadFrequently: true });
+    cctx.drawImage(image, 0, 0, w, h);
+    const { data } = cctx.getImageData(0,0,w,h);
 
-  const {colors, totals} = extractColors(img, maxEdge, mode, k);
-  drawGradient(colors, totals, sort);
-  renderSwatches(colors, totals);
-  setStatus('Generado ✓','ok');
-}
+    // Histograma con cuantización leve (paso 8)
+    const map = new Map();
+    for(let i=0;i<data.length;i+=4){
+      if(data[i+3] < 16) continue; // ignora píxeles muy transparentes
+      const r = (data[i]>>3)<<3, g=(data[i+1]>>3)<<3, b=(data[i+2]>>3)<<3;
+      const hex = rgbToHex(r,g,b);
+      map.set(hex, (map.get(hex)||0)+1);
+    }
+    const entries = Array.from(map.entries()); // [hex,count]
 
-function extractColors(image, maxEdge, mode, k){
-  const scale = maxEdge / Math.max(image.naturalWidth, image.naturalHeight);
-  const w = Math.max(1, Math.round(image.naturalWidth * scale));
-  const h = Math.max(1, Math.round(image.naturalHeight * scale));
-  const c = doc
+    let colors;
+    if(mode === 'all'){
+      colors = mergeNearbyColors(entries, 10); // agrupa cercanos
+    } else {
+      colors = kmeansFromHistogram(entries, k);
+    }
+
+    const totalCount = colors.reduce((acc,c)=> acc + c.count, 0);
+    return { colors, totals: { totalCount } };
+  }
+
+  function kmeansFromHistogram(entries, k){
+    if (entries.length === 0) return [];
+    entries.sort((a,b)=> b[1]-a[1]);
+    const centroids = entries.slice(0, Math.min(k, entries.length)).map(e => hexToRgb(e[0]));
+    const points = entries.map(([hex,count]) => ({ rgb: hexToRgb(hex), hex, count }));
+
+    for(let iter=0; iter<8; iter++){
+      const buckets = Array.from({length:centroids.length}, ()=>[]);
+      for(const p of points){
+        let best=-1, bestD=1e18;
+        for(let i=0;i<centroids.length;i++){
+          const d = distSq(p.rgb, centroids[i]);
+          if(d < bestD){ bestD=d; best=i; }
+        }
+        buckets[best].push(p);
+      }
+      for(let i=0;i<centroids.length;i++){
+        if(buckets[i].length===0) continue;
+        let r=0,g=0,b=0,w=0;
+        for(const p of buckets[i]){ r+=p.rgb.r*p.count; g+=p.rgb.g*p.count; b+=p.rgb.b*p.count; w+=p.count; }
+        centroids[i] = { r:Math.round(r/w), g:Math.round(g/w), b:Math.round(b/w) };
+      }
+    }
+
+    const outMap = new Map();
+    for(const p of points){
+      let best=-1, bestD=1e18;
+      for(let i=0;i<centroids.length;i++){
+        const d = distSq(p.rgb, centroids[i]);
+        if(d < bestD){ bestD=d; best=i; }
+      }
+      const key = rgbToHex(centroids[best].r, centroids[best].g, centroids[best].b);
+      outMap.set(key, (outMap.get(key)||0) + p.count);
+    }
+    return Array.from(outMap.entries()).map(([hex,count]) => ({ hex, rgb: hexToRgb(hex), count }))
+             .sort((a,b)=> b.count - a.count)
+             .slice(0, k);
+  }
+
+  function mergeNearbyColors(entries, threshold=10){
+    const arr = entries.map(([hex,count]) => {
+      const rgb = hexToRgb(hex); const h = rgbToHsl(rgb).h;
+      return { hex, rgb, h, count };
+    }).sort((a,b)=> a.h - b.h);
+
+    const merged = [];
+    for(const p of arr){
+      const last = merged[merged.length-1];
+      if(last && colorDelta(last.rgb, p.rgb) < threshold){
+        const w = last.count + p.count;
+        last.rgb = {
+          r: Math.round((last.rgb.r*last.count + p.rgb.r*p.count)/w),
+          g: Math.round((last.rgb.g*last.count + p.rgb.g*p.count)/w),
+          b: Math.round((last.rgb.b*last.count + p.rgb.b*p.count)/w),
+        };
+        last.hex = rgbToHex(last.rgb.r,last.rgb.g,last.rgb.b);
+        last.count = w;
+      } else {
+        merged.push({ ...p, rgb:{...p.rgb} });
+      }
+    }
+    return merged;
+  }
+
+  function drawGradient(colors, totals, sort){
+    drawGradientOnContext(ctx, canvas.width, canvas.height, colors, totals, sort);
+  }
+
+  function drawGradientOnContext(anyCtx, w, h, colors, totals, sort){
+    anyCtx.clearRect(0,0,w,h);
+    if(!colors.length){ anyCtx.fillStyle='#000'; anyCtx.fillRect(0,0,w,h); return; }
+
+    if(sort==='frequency') colors.sort((a,b)=> b.count - a.count);
+    else colors.sort((a,b)=> rgbToHsl(a.rgb).h - rgbToHsl(b.rgb).h);
+
+    let x = 0;
+    for(let i=0;i<colors.length;i++){
+      const cur = colors[i], next = colors[i+1] || colors[i];
+      const width = Math.max(1, Math.round(w * (cur.count / totals.totalCount)));
+      const g = anyCtx.createLinearGradient(x,0,x+width,0);
+      g.addColorStop(0, rgbCss(cur.rgb));
+      g.addColorStop(1, rgbCss(next.rgb));
+      anyCtx.fillStyle = g;
+      anyCtx.fillRect(x,0,width,h);
+      x += width;
+    }
+    if(x < w){ const last = colors[colors.length-1]; anyCtx.fillStyle = rgbCss(last.rgb); anyCtx.fillRect(x,0,w-x,h); }
+  }
+
+  function renderSwatches(colors, totals){
+    swatches.innerHTML = '';
+    const top = [...colors].sort((a,b)=> b.count - a.count).slice(0,7);
+    for(const c of top){
+      const div = document.createElement('div'); div.className='swatch';
+      const box = document.createElement('i'); box.style.background = c.hex || rgbCss(c.rgb);
+      const pct = ((c.count / totals.totalCount) * 100).toFixed(1);
+      const label = document.createElement('span'); label.textContent = `${(c.hex || rgbToHex(c.rgb.r,c.rgb.g,c.rgb.b)).toUpperCase()} • ${pct}%`;
+      div.appendChild(box); div.appendChild(label); swatches.appendChild(div);
+    }
+  }
+
+  // Helpers
+  function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
+  function rgbToHex(r,g,b){ return '#' + [r,g,b].map(v=> v.toString(16).padStart(2,'0')).join(''); }
+  function hexToRgb(hex){ const v = hex.replace('#',''); return { r:parseInt(v.slice(0,2),16), g:parseInt(v.slice(2,4),16), b:parseInt(v.slice(4,6),16) }; }
+  function distSq(a,b){ const dr=a.r-b.r,dg=a.g-b.g,db=a.b-b.b; return dr*dr+dg*dg+db*db; }
+  function colorDelta(a,b){ return Math.sqrt(distSq(a,b)); }
+  function rgbCss({r,g,b}){ return `rgb(${r},${g},${b})`; }
+  function rgbToHsl({r,g,b}){
+    r/=255; g/=255; b/=255;
+    const max=Math.max(r,g,b), min=Math.min(r,g,b);
+    let h,s,l=(max+min)/2;
+    if(max===min){ h=s=0; }
+    else {
+      const d=max-min;
+      s = l>0.5 ? d/(2-max-min) : d/(max+min);
+      switch(max){case r:h=(g-b)/d+(g<b?6:0);break;case g:h=(b-r)/d+2;break;case b:h=(r-g)/d+4;break;}
+      h/=6;
+    }
+    return { h:h*360, s, l };
+  }
+
+  // Canvas HiDPI + altura configurable
+  function resizeCanvas(){
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const cssW = canvas.clientWidth;
+    const cssH = parseInt(getComputedStyle(canvas).height,10) || canvas.clientHeight;
+    if(!cssW || !cssH) return;
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    canvas.style.width = cssW + 'px';
+    canvas.style.height = cssH + 'px';
+  }
+  function applyHeight(){
+    const h = clamp(parseInt(heightInput.value||'180',10), 60, 1000);
+    canvas.style.height = h + 'px';
+    resizeCanvas();
+    if (hasImage) generate();
+  }
+  if ('ResizeObserver' in window){ new ResizeObserver(resizeCanvas).observe(canvas); }
+  window.addEventListener('resize', resizeCanvas);
+  applyHeight();
+})();
+</script>
+</body>
+</html>
